@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-llm-bedrock
 
+[English](README.en.md) | **中文**
+
 一个面向 [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness) LLM capability seam 的 **AWS Bedrock Converse** model provider。用 `ConverseStreamCommand` 走 AWS SDK，认证由 SDK 默认凭证链完成，主要面向 **Anthropic Claude**，并按 model 名字对其它家族（Nova / Llama / DeepSeek 等）的能力差异做判断。
 
 源码结构与 dsh 内置的 `llm-deepseek` provider 完全对齐（同样的 `LlmAdapter` 接口、per-request 配置解析、注册模式），因此可以零改动地放进 monorepo 作为内部包。
