@@ -86,6 +86,10 @@ reasoning effort（`off`/`low`/`high`/`max`）目前统一映射为"是否开启
 
 以 `headless` profile 为例（`web` 同理，把 `headless` 换成 `web`）。
 
+> **前置：构建工具链。** `dsh plugin ... add` 会在 profile 目录里跑 pnpm，安装时通过本包的 `prepare` 脚本执行 `tsc` 编译。因此需要：
+> - `pnpm` 在 PATH 上（否则 exit 127）。若只有 Node，可用 `corepack enable pnpm` 提供。
+> - 本包的 `devDependencies` 已包含 `@types/node` 与 `typescript`，`tsconfig` 的 `types: ["node"]` 依赖前者；作为 out-of-tree git/本地包安装时，pnpm 会在隔离目录里按本包自己的 `devDependencies` 构建，缺任一项都会导致 `tsc` 失败。
+
 #### 1. 安装本插件到 profile
 
 **从 GitHub 装（推荐，配合本仓库）：**
@@ -94,7 +98,7 @@ dsh plugin --profile headless add git+https://github.com/<你的用户名>/<仓�
 ```
 本仓库的 `prepare` 脚本会在安装时自动 `tsc` 编译出 `lib/`。
 
-> pnpm ≥10 默认拦截 git 依赖的 `prepare`（构建）脚本。若安装报错提示某个包的 build 被阻止，按 pnpm 输出的提示，在 `$DSH_HOME/profiles/headless/pnpm-workspace.yaml` 的 `allowBuilds:` 下加上它给出的确切 key，然后重跑。
+> pnpm ≥10 默认拦截 git 依赖的 `prepare`（构建）脚本。若安装报错提示某个包的 build 被阻止，按 pnpm 输出的提示，在 `$DSH_HOME/profiles/headless/pnpm-workspace.yaml` 的 `allowBuilds:` 下加上它给出的确切 key，然后重跑。该 key 内含 git tarball 的 commit SHA，**每次仓库有新提交后 key 会变**，需按新的报错更新。
 
 **或从本地目录装（先克隆本仓库到服务器）：**
 ```sh

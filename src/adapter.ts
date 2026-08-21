@@ -31,11 +31,11 @@ import type {
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
-import { modelCapabilities } from './model.ts'
-import { serializeRequest } from './serialize.ts'
-import type { RequestDefaults } from './serialize.ts'
-import { translate } from './translate.ts'
-import type { ConverseStreamOutput } from './types.ts'
+import { modelCapabilities } from './model.js'
+import { serializeRequest } from './serialize.js'
+import type { RequestDefaults } from './serialize.js'
+import { translate } from './translate.js'
+import type { ConverseStreamOutput } from './types.js'
 
 /** One optional model entry advertised by the Bedrock adapter. */
 export interface BedrockCatalogModel {

@@ -18,8 +18,8 @@
 
 import { CallId, EMPTY_RESPONSE_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, FinishReason, StreamChunk, TokenUsage } from '@deepseek-ai/dsh-llm'
-import { REASONING_SIGNATURES_KEY } from './replay.ts'
-import type { BedrockTokenUsage, ConverseStreamOutput, StopReason } from './types.ts'
+import { REASONING_SIGNATURES_KEY } from './replay.js'
+import type { BedrockTokenUsage, ConverseStreamOutput, StopReason } from './types.js'
 
 /** One harness block under assembly, mapped from one Bedrock content-block index. */
 interface OpenBlock {

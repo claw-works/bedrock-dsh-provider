@@ -21,8 +21,8 @@
 
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock as HarnessBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import type { ModelCapabilities } from './model.ts'
-import { REASONING_SIGNATURES_KEY, type ReasoningSignatures } from './replay.ts'
+import type { ModelCapabilities } from './model.js'
+import { REASONING_SIGNATURES_KEY, type ReasoningSignatures } from './replay.js'
 import type {
   ContentBlock,
   ConverseStreamCommandInput,
@@ -31,7 +31,7 @@ import type {
   SystemContentBlock,
   Tool,
   ToolConfiguration,
-} from './types.ts'
+} from './types.js'
 
 /** Adapter-level request defaults derived from plugin config. */
 export interface RequestDefaults {

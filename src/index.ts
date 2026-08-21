@@ -28,8 +28,8 @@ import {
   DEFAULT_MAX_TOKENS,
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   DEFAULT_THINKING_BUDGET_TOKENS,
-} from './adapter.ts'
-import type { BedrockCatalogModel, BedrockConnectionOptions } from './adapter.ts'
+} from './adapter.js'
+import type { BedrockCatalogModel, BedrockConnectionOptions } from './adapter.js'
 
 export {
   BedrockAdapter,
@@ -37,12 +37,12 @@ export {
   DEFAULT_MAX_TOKENS,
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   DEFAULT_THINKING_BUDGET_TOKENS,
-} from './adapter.ts'
-export type { BedrockAdapterOptions, BedrockCatalogModel, BedrockConnectionOptions } from './adapter.ts'
-export type { RequestDefaults } from './serialize.ts'
-export { modelCapabilities, modelFamily } from './model.ts'
-export type { ModelCapabilities, ModelFamily } from './model.ts'
-export type * from './types.ts'
+} from './adapter.js'
+export type { BedrockAdapterOptions, BedrockCatalogModel, BedrockConnectionOptions } from './adapter.js'
+export type { RequestDefaults } from './serialize.js'
+export { modelCapabilities, modelFamily } from './model.js'
+export type { ModelCapabilities, ModelFamily } from './model.js'
+export type * from './types.js'
 
 export const name = 'llm-bedrock'
 export const inject = ['llm']
