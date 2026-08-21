@@ -1,0 +1,40 @@
+# Example cordis.yml fragment mounting the Bedrock provider alongside the LLM
+# runtime. The LLM runtime (@deepseek-ai/dsh-llm) must be mounted before this
+# plugin; `inject: ['llm']` enforces the ordering.
+#
+# Credentials are NOT configured here: the AWS SDK resolves them from its
+# default provider chain (AWS_PROFILE / AWS_ACCESS_KEY_ID+AWS_SECRET_ACCESS_KEY /
+# SSO / container / instance role). Only region, profile, and endpoint are
+# plugin config.
+
+plugins:
+  - name: '@deepseek-ai/dsh-llm'
+
+  - name: '@deepseek-ai/dsh-llm-bedrock'
+    config:
+      # AWS region; omit to let the SDK resolve it from AWS_REGION / shared config.
+      region: us-east-1
+
+      # Optional shared-config profile; omit to use the SDK default chain.
+      # profile: my-bedrock-profile
+
+      # Optional override endpoint (VPC endpoint / gateway).
+      # endpoint: https://bedrock-runtime.us-east-1.amazonaws.com
+
+      # Default output-token cap; a model's own cap and per-request values win.
+      maxTokens: 8192
+
+      # Token budget for the Claude extended-thinking channel when reasoning
+      # effort is on (any value other than "off").
+      thinkingBudgetTokens: 4096
+
+      # Advisory model catalog surfaced to model selectors. Requests are NOT
+      # restricted to this list; any Bedrock model id / inference profile /
+      # ARN the account can invoke is accepted.
+      models:
+        - id: us.anthropic.claude-sonnet-4-20250514-v1:0
+          name: Claude Sonnet 4
+          contextWindow: 200000
+        - id: us.anthropic.claude-3-7-sonnet-20250219-v1:0
+          name: Claude 3.7 Sonnet
+          contextWindow: 200000
