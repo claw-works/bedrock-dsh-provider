@@ -23,10 +23,17 @@ export interface ModelCapabilities {
   images: boolean
   /**
    * The model exposes a reasoning / extended-thinking channel and how it is
-   * turned on: `claude-thinking` uses `additionalModelRequestFields`, `none`
-   * means the model has no reasoning knob this adapter drives.
+   * turned on:
+   *  - `claude-thinking` drives Claude extended thinking through
+   *    `additionalModelRequestFields.thinking` with an effort-tiered
+   *    `budget_tokens`;
+   *  - `openai-reasoning` and `grok-reasoning` name the OpenAI (gpt-oss) and
+   *    xAI Grok reasoning channels — predeclared here so the request mapping
+   *    can dispatch on the channel, but not yet implemented by this adapter
+   *    (they resolve to no reasoning fields until their branch lands);
+   *  - `none` means the model has no reasoning knob this adapter drives.
    */
-  reasoning: 'claude-thinking' | 'none'
+  reasoning: 'claude-thinking' | 'openai-reasoning' | 'grok-reasoning' | 'none'
 }
 
 /**

@@ -54,7 +54,7 @@
 
 > 注：image 输入本包第一版尚未实现序列化（`serialize.ts` 对 image content 直接抛 `UNSUPPORTED_CONTENT`）。上表的 images 列表示模型本身是否支持，留待后续实现 image 序列化时打开。
 
-reasoning effort（`off`/`low`/`high`/`max`）目前统一映射为"是否开启 thinking"+固定 `thinkingBudgetTokens`；如需按 effort 分档预算，改 `serialize.ts` 的 `resolveThinking`。
+reasoning effort（`off`/`low`/`high`/`max`）开启 Claude extended thinking，并按档位映射 `budget_tokens`：`low`/`high`/`max` 各取自己的预算（内置默认 1024 / 4096 / 16384，可通过 `thinkingBudgetByEffort` 逐档覆盖），`medium` 视作 `high`，`off` / 省略则关闭 thinking。映射在 `serialize.ts` 的 `resolveThinking` 中按模型 reasoning 通道（`ModelCapabilities.reasoning`）分发，`openai-reasoning` / `grok-reasoning` 已预留分支。未单独配置的档位回退到 `thinkingBudgetTokens`。
 
 ## 配置
 
@@ -66,7 +66,8 @@ reasoning effort（`off`/`low`/`high`/`max`）目前统一映射为"是否开启
 | `profile` | SDK 默认 | 共享配置 profile 名 |
 | `endpoint` | 区域默认 | 覆盖 endpoint（VPC endpoint / gateway） |
 | `maxTokens` | 8192 | 默认输出上限，模型自身上限与请求显式值优先 |
-| `thinkingBudgetTokens` | 4096 | Claude thinking 通道 token 预算 |
+| `thinkingBudgetTokens` | 4096 | Claude thinking 通道兜底 token 预算（未单独配置的档位回退到它） |
+| `thinkingBudgetByEffort` | `{ low: 1024, high: 4096, max: 16384 }` | 按 effort 档位的 Claude thinking 预算；可只覆盖 `low` / `high` / `max` 中的任意子集 |
 | `defaultContextWindow` | 200000 | 目录未给出时的上下文容量 |
 | `models` | 两个 Claude 条目 | 咨询用目录，不限制实际可用 model |
 | `streamIdleTimeoutMs` | 300000 | 单次流读空闲超时 |
@@ -168,5 +169,5 @@ dsh --profile web
 ## 待办 / 后续
 
 - image 输入序列化（`toImage` content block），并接 dsh attachment seam。
-- reasoning effort 按档位映射不同 `budget_tokens`。
+- ~~reasoning effort 按档位映射不同 `budget_tokens`。~~ 已完成：通过 `thinkingBudgetByEffort` 按档位配置预算，并在 `resolveThinking` 中按 reasoning 通道分发。
 - provider 级 e2e / snapshot 测试（需真实 AWS 凭证或 mock Bedrock 端点）。

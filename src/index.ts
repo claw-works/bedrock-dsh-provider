@@ -27,19 +27,22 @@ import {
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_MAX_TOKENS,
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+  DEFAULT_THINKING_BUDGET_BY_EFFORT,
   DEFAULT_THINKING_BUDGET_TOKENS,
 } from './adapter.js'
 import type { BedrockCatalogModel, BedrockConnectionOptions } from './adapter.js'
+import type { ThinkingBudgetByEffort } from './serialize.js'
 
 export {
   BedrockAdapter,
   DEFAULT_CONTEXT_WINDOW,
   DEFAULT_MAX_TOKENS,
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+  DEFAULT_THINKING_BUDGET_BY_EFFORT,
   DEFAULT_THINKING_BUDGET_TOKENS,
 } from './adapter.js'
 export type { BedrockAdapterOptions, BedrockCatalogModel, BedrockConnectionOptions } from './adapter.js'
-export type { RequestDefaults } from './serialize.js'
+export type { RequestDefaults, ThinkingBudgetByEffort, ThinkingEffortTier } from './serialize.js'
 export { modelCapabilities, modelFamily } from './model.js'
 export type { ModelCapabilities, ModelFamily } from './model.js'
 export type * from './types.js'
@@ -81,8 +84,15 @@ export interface Config {
   endpoint?: string
   /** Default per-request output cap (default 8192); a model's own cap and explicit request values win. */
   maxTokens?: number
-  /** Token budget for the Claude thinking channel when reasoning is on (default 4096). */
+  /** Token budget for the Claude thinking channel when reasoning is on (default 4096); the per-effort fallback. */
   thinkingBudgetTokens?: number
+  /**
+   * Per-effort Claude thinking budgets (`low` / `high` / `max`). Any tier
+   * omitted falls back to {@link thinkingBudgetTokens}; omitting the whole
+   * object keeps the built-in tiered defaults. `medium` is not a separate tier
+   * (the resolver treats it as `high`).
+   */
+  thinkingBudgetByEffort?: Partial<Record<'low' | 'high' | 'max', number>>
   /** Positive context capacity used when the selected model has no exact value (default 200000). */
   defaultContextWindow?: number
   /** Advisory models shown by discovery consumers; defaults to two Claude entries. */
@@ -107,11 +117,42 @@ export const Config: z<Config> = z.object({
   endpoint: z.string(),
   maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULT_MAX_TOKENS),
   thinkingBudgetTokens: z.number().step(1).min(1).default(DEFAULT_THINKING_BUDGET_TOKENS),
+  thinkingBudgetByEffort: z.object({
+    low: z.number().step(1).min(1),
+    high: z.number().step(1).min(1),
+    max: z.number().step(1).min(1),
+  }),
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
   models: z.array(catalogModel).default(DEFAULT_MODELS),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
   retryPolicy: RetryPolicySchema,
 })
+
+/**
+ * Merge configured per-effort thinking budgets over the built-in tiered
+ * defaults, validating every provided value. Returns the resolved `low` / `high`
+ * / `max` map. The map is always present so tiered budgeting is the default;
+ * `thinkingBudgetTokens` still acts as the resolver's final fallback for any
+ * effort id outside these tiers.
+ * @param configured - the optional per-effort overrides from plugin config.
+ * @returns the resolved per-effort budget map.
+ */
+function resolveThinkingBudgetByEffort(
+  configured: Partial<Record<'low' | 'high' | 'max', number>> | undefined,
+): ThinkingBudgetByEffort {
+  const merged: Record<'low' | 'high' | 'max', number> = { ...DEFAULT_THINKING_BUDGET_BY_EFFORT }
+  if (configured !== undefined) {
+    for (const tier of ['low', 'high', 'max'] as const) {
+      const value = configured[tier]
+      if (value === undefined) continue
+      if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new Error(`llm-bedrock: thinkingBudgetByEffort.${tier} must be a positive safe integer`)
+      }
+      merged[tier] = value
+    }
+  }
+  return merged
+}
 
 /** Resolve, validate, and detach the advisory model catalog. */
 function resolveModels(models: readonly BedrockCatalogModel[] | undefined): BedrockCatalogModel[] {
@@ -163,6 +204,7 @@ export function resolveAdapterOptions(
   if (!Number.isSafeInteger(thinkingBudgetTokens) || thinkingBudgetTokens <= 0) {
     throw new Error('llm-bedrock: thinkingBudgetTokens must be a positive safe integer')
   }
+  const thinkingBudgetByEffort = resolveThinkingBudgetByEffort(config.thinkingBudgetByEffort)
   const streamIdleTimeoutMs = config.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
   if (!Number.isFinite(streamIdleTimeoutMs)
     || streamIdleTimeoutMs <= 0
@@ -177,7 +219,7 @@ export function resolveAdapterOptions(
     ...region === undefined ? {} : { region },
     ...config.profile === undefined ? {} : { profile: config.profile },
     ...config.endpoint === undefined ? {} : { endpoint: config.endpoint },
-    defaults: { thinkingBudgetTokens },
+    defaults: { thinkingBudgetTokens, thinkingBudgetByEffort },
     maxTokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
     defaultContextWindow: config.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
     models: resolveModels(config.models),

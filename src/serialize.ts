@@ -33,10 +33,31 @@ import type {
   ToolConfiguration,
 } from './types.js'
 
+/**
+ * Reasoning effort tiers this adapter maps to distinct thinking budgets. Kept
+ * in sync with the effort ids the adapter advertises (`low` / `high` / `max`);
+ * `medium` is accepted as an alias for `high` for callers that speak the
+ * OpenAI-style tier name.
+ */
+export type ThinkingEffortTier = 'low' | 'high' | 'max'
+
+/** Per-effort Claude thinking token budgets. */
+export type ThinkingBudgetByEffort = Readonly<Record<ThinkingEffortTier, number>>
+
 /** Adapter-level request defaults derived from plugin config. */
 export interface RequestDefaults {
-  /** Token budget for the Claude thinking channel when reasoning is on. */
+  /**
+   * Token budget for the Claude thinking channel when reasoning is on and no
+   * effort-tiered budget applies. Also the fallback each effort tier falls back
+   * to when {@link thinkingBudgetByEffort} omits it.
+   */
   thinkingBudgetTokens: number
+  /**
+   * Optional per-effort Claude thinking budgets. Any tier omitted here falls
+   * back to {@link thinkingBudgetTokens}; when the whole map is absent every
+   * tier uses that single value (the pre-tiered behaviour).
+   */
+  thinkingBudgetByEffort?: Partial<ThinkingBudgetByEffort>
 }
 
 /** Read the reasoning signatures an assistant message carried on its replay state. */
@@ -212,28 +233,87 @@ export function serializeRequest(
 }
 
 /**
- * Resolve the `additionalModelRequestFields` that enable Claude extended
- * thinking, or `undefined` when reasoning is off or unsupported. Bedrock
- * requires the sampling temperature to be unset (it forces 1.0) while thinking
- * is on; the caller-supplied temperature is simply not sent in that case, which
- * `serializeRequest` already does by leaving `inferenceConfig.temperature`
- * absent whenever the caller omits it — a caller that both sets temperature and
- * requests thinking gets a provider-side rejection that names the conflict.
+ * Resolve the `additionalModelRequestFields` that turn on a model's reasoning
+ * channel, or `undefined` when reasoning is off or the model has no channel
+ * this adapter drives. The mapping dispatches on
+ * {@link ModelCapabilities.reasoning}: today only `claude-thinking` is
+ * implemented; `openai-reasoning` and `grok-reasoning` are recognised as future
+ * branches and resolve to `undefined` until their mapping lands.
+ *
+ * For Claude, Bedrock requires the sampling temperature to be unset (it forces
+ * 1.0) while thinking is on; the caller-supplied temperature is simply not sent
+ * in that case, which `serializeRequest` already does by leaving
+ * `inferenceConfig.temperature` absent whenever the caller omits it — a caller
+ * that both sets temperature and requests thinking gets a provider-side
+ * rejection that names the conflict.
  * @param options - the harness request.
  * @param capabilities - resolved capabilities of the model.
- * @param defaults - adapter defaults carrying the thinking token budget.
- * @returns the request-fields object, or undefined when thinking stays off.
+ * @param defaults - adapter defaults carrying the thinking token budgets.
+ * @returns the request-fields object, or undefined when reasoning stays off.
  */
 function resolveThinking(
   options: GenerateOptions,
   capabilities: ModelCapabilities,
   defaults: RequestDefaults,
 ): DocumentType | undefined {
-  if (capabilities.reasoning !== 'claude-thinking') return undefined
+  // Reasoning is never wanted for the internal session-title summarisation, and
+  // an off / absent effort means the caller declined reasoning entirely.
   if (options.purpose === 'session-title') return undefined
   const effort = options.reasoningEffort
   if (effort === undefined || effort === 'off') return undefined
-  return {
-    thinking: { type: 'enabled', budget_tokens: defaults.thinkingBudgetTokens },
+
+  switch (capabilities.reasoning) {
+    case 'claude-thinking':
+      return {
+        thinking: {
+          type: 'enabled',
+          budget_tokens: claudeThinkingBudget(effort, defaults),
+        },
+      }
+    // Predeclared channels for OpenAI (gpt-oss) and xAI Grok — dispatched here
+    // so a later issue only fills in the mapping, not the routing. Until then
+    // they send no reasoning fields.
+    case 'openai-reasoning':
+    case 'grok-reasoning':
+    case 'none':
+      return undefined
+    default:
+      return undefined
+  }
+}
+
+/**
+ * Choose the Claude `budget_tokens` for one reasoning-effort tier. `low` /
+ * `high` / `max` each pick their configured per-effort budget when present;
+ * `medium` is treated as `high`; any tier without a per-effort value — and any
+ * unrecognised effort id — falls back to the single {@link
+ * RequestDefaults.thinkingBudgetTokens}.
+ * @param effort - the caller's reasoning-effort id (already known non-off).
+ * @param defaults - adapter defaults carrying the budgets.
+ * @returns the token budget to send for this tier.
+ */
+function claudeThinkingBudget(effort: string, defaults: RequestDefaults): number {
+  const tier = thinkingEffortTier(effort)
+  const perEffort = tier === undefined ? undefined : defaults.thinkingBudgetByEffort?.[tier]
+  return perEffort ?? defaults.thinkingBudgetTokens
+}
+
+/**
+ * Normalise a reasoning-effort id to the tier this adapter budgets against, or
+ * `undefined` for an effort with no distinct tier (which then uses the single
+ * default budget). `medium` maps to `high` so OpenAI-style tier names still
+ * resolve.
+ */
+function thinkingEffortTier(effort: string): ThinkingEffortTier | undefined {
+  switch (effort) {
+    case 'low':
+      return 'low'
+    case 'medium':
+    case 'high':
+      return 'high'
+    case 'max':
+      return 'max'
+    default:
+      return undefined
   }
 }

@@ -54,7 +54,7 @@ It implements the three roles of the dsh LLM seam:
 
 > Note: image input serialization is not yet implemented in this first version (`serialize.ts` throws `UNSUPPORTED_CONTENT` on image content). The `images` column above indicates whether the model itself supports images, reserved for when image serialization is added.
 
-reasoning effort (`off`/`low`/`high`/`max`) currently maps uniformly to "whether to enable thinking" plus a fixed `thinkingBudgetTokens`. To budget per effort tier, edit `resolveThinking` in `serialize.ts`.
+reasoning effort (`off`/`low`/`high`/`max`) enables Claude extended thinking and maps to a per-tier `budget_tokens`: `low`/`high`/`max` each pick their own budget (built-in defaults 1024 / 4096 / 16384, override per tier via `thinkingBudgetByEffort`), `medium` is treated as `high`, and `off` / absent disables thinking. The mapping dispatches on the model's reasoning channel (`ModelCapabilities.reasoning`) in `resolveThinking` (`serialize.ts`), with `openai-reasoning` / `grok-reasoning` predeclared for later providers. Any tier without a per-effort value falls back to `thinkingBudgetTokens`.
 
 ## Configuration
 
@@ -66,7 +66,8 @@ Every field is optional. Credentials are **not** in this config — the AWS SDK 
 | `profile` | SDK default | shared-config profile name |
 | `endpoint` | regional default | override endpoint (VPC endpoint / gateway) |
 | `maxTokens` | 8192 | default output cap; the model's own cap and an explicit per-request value win |
-| `thinkingBudgetTokens` | 4096 | token budget for the Claude thinking channel |
+| `thinkingBudgetTokens` | 4096 | fallback token budget for the Claude thinking channel (used by any effort tier without its own value) |
+| `thinkingBudgetByEffort` | `{ low: 1024, high: 4096, max: 16384 }` | per-effort Claude thinking budgets; set any subset of `low` / `high` / `max` to override a tier |
 | `defaultContextWindow` | 200000 | context capacity used when the catalog does not provide one |
 | `models` | two Claude entries | advisory catalog; does not restrict which models can actually be used |
 | `streamIdleTimeoutMs` | 300000 | idle timeout for a single stream read |
@@ -168,5 +169,5 @@ After installing into a real dsh, it is recommended to run `npm run build` once 
 ## TODO / follow-ups
 
 - Image input serialization (`toImage` content block), wired to the dsh attachment seam.
-- Map reasoning effort tiers to different `budget_tokens`.
+- ~~Map reasoning effort tiers to different `budget_tokens`.~~ Done: per-tier budgets via `thinkingBudgetByEffort`, dispatched by reasoning channel in `resolveThinking`.
 - Provider-level e2e / snapshot tests (requires real AWS credentials or a mock Bedrock endpoint).

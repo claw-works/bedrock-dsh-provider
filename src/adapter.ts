@@ -87,6 +87,17 @@ export const DEFAULT_CONTEXT_WINDOW = 200_000
 export const DEFAULT_MAX_TOKENS = 8_192
 /** Default token budget for the Claude thinking channel. */
 export const DEFAULT_THINKING_BUDGET_TOKENS = 4_096
+/**
+ * Default per-effort Claude thinking budgets. Each tier scales the budget the
+ * `low` / `high` / `max` selector requests; a tier omitted from config config
+ * falls back to {@link DEFAULT_THINKING_BUDGET_TOKENS}. `medium` (OpenAI-style)
+ * is treated as `high` by the resolver.
+ */
+export const DEFAULT_THINKING_BUDGET_BY_EFFORT = {
+  low: 1_024,
+  high: 4_096,
+  max: 16_384,
+} as const
 const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
 
 const OFF_REASONING_EFFORT = ReasoningEffortId('off')
