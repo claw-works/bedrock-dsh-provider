@@ -1,0 +1,67 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`serializeRequest — full body snapshot > produces a stable ConverseStream body for a mixed conversation 1`] = `
+{
+  "inferenceConfig": {
+    "maxTokens": 1024,
+  },
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "what time is it?",
+        },
+      ],
+      "role": "user",
+    },
+    {
+      "content": [
+        {
+          "toolUse": {
+            "input": {},
+            "name": "clock",
+            "toolUseId": "c1",
+          },
+        },
+      ],
+      "role": "assistant",
+    },
+    {
+      "content": [
+        {
+          "toolResult": {
+            "content": [
+              {
+                "text": "12:00",
+              },
+            ],
+            "toolUseId": "c1",
+          },
+        },
+      ],
+      "role": "user",
+    },
+  ],
+  "modelId": "anthropic.claude-sonnet-4-20250514-v1:0",
+  "system": [
+    {
+      "text": "assistant",
+    },
+  ],
+  "toolConfig": {
+    "tools": [
+      {
+        "toolSpec": {
+          "description": "clock",
+          "inputSchema": {
+            "json": {
+              "type": "object",
+            },
+          },
+          "name": "clock",
+        },
+      },
+    ],
+  },
+}
+`;
