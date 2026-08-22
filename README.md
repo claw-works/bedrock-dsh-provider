@@ -1,122 +1,122 @@
 # @deepseek-ai/dsh-llm-bedrock
 
-[English](README.en.md) | **中文**
+**English** | [中文](README.zh-CN.md)
 
-一个面向 [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness) LLM capability seam 的 **AWS Bedrock Converse** model provider。用 `ConverseStreamCommand` 走 AWS SDK，认证由 SDK 默认凭证链完成，主要面向 **Anthropic Claude**，并按 model 名字对其它家族（Nova / Llama / DeepSeek 等）的能力差异做判断。
+An **AWS Bedrock Converse** model provider for the [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness) LLM capability seam. It drives the AWS SDK via `ConverseStreamCommand`, lets the SDK's default credential chain handle authentication, targets **Anthropic Claude** primarily, and switches behaviour by model name to accommodate the capability differences of other families (Nova / Llama / DeepSeek, etc.).
 
-源码结构与 dsh 内置的 `llm-deepseek` provider 完全对齐（同样的 `LlmAdapter` 接口、per-request 配置解析、注册模式），因此可以零改动地放进 monorepo 作为内部包。
+The source layout mirrors dsh's built-in `llm-deepseek` provider exactly (same `LlmAdapter` interface, per-request config resolution, registration pattern), so it drops into the monorepo as an internal package with zero changes.
 
-## 它做了什么
+## What it does
 
-实现了 dsh LLM seam 的三个角色：
+It implements the three roles of the dsh LLM seam:
 
-- **Service Provider**：`BedrockAdapter extends LlmAdapter`，唯一必需方法 `stream()` 返回 `AsyncIterable<StreamChunk>`；另实现 `resolveModel()` / `listModels()` / `providerRetryPolicy()`。
-- **注册**：`apply()` 里 `ctx.llm.registerConfigurableProviders([...])` + `ctx.llm.registerAdapter(['bedrock'], adapter)`，路由名 `bedrock`。
-- **配置**：`Config` schemastery schema，同时作为 `llm-bedrock` user-settings section；连接facts每次请求重新解析，配置变更无需重启即对下一次请求生效。
+- **Service Provider**: `BedrockAdapter extends LlmAdapter`; the sole required method `stream()` returns an `AsyncIterable<StreamChunk>`. It also implements `resolveModel()` / `listModels()` / `providerRetryPolicy()`.
+- **Registration**: inside `apply()`, `ctx.llm.registerConfigurableProviders([...])` + `ctx.llm.registerAdapter(['bedrock'], adapter)`, with the route name `bedrock`.
+- **Config**: a `Config` schemastery schema that doubles as the `llm-bedrock` user-settings section. Connection facts are re-resolved on every request, so a config change takes effect on the next request without a restart.
 
-### 源码文件
+### Source files
 
-| 文件 | 职责 |
+| File | Responsibility |
 |---|---|
-| `src/index.ts` | 插件入口、`Config` schema、注册、per-request 配置解析（region/profile/endpoint/catalog） |
-| `src/adapter.ts` | `BedrockAdapter`：`ConverseStreamCommand`、SDK 客户端复用、idle watchdog、AWS 错误 → `LlmError` code 映射 |
-| `src/serialize.ts` | harness `Message[]` → Converse 入参（`messages` / `system` / `toolConfig` / thinking fields），合并连续同 role turn，tool-result 归入 user 的 `toolResult` block |
-| `src/translate.ts` | Converse 流事件 → harness `StreamChunk`（block-start/delta/end、usage、finish、stopReason 映射） |
-| `src/model.ts` | 按 model id 判断能力（tools / images / reasoning），Claude 优先 |
-| `src/replay.ts` | Claude extended-thinking 的 `signature` 通过 `ReplayEnvelope` 携带回放 |
-| `src/types.ts` | 从 `@aws-sdk/client-bedrock-runtime` 复用的 wire 类型 |
+| `src/index.ts` | Plugin entry, `Config` schema, registration, per-request config resolution (region/profile/endpoint/catalog) |
+| `src/adapter.ts` | `BedrockAdapter`: `ConverseStreamCommand`, SDK client reuse, idle watchdog, AWS error → `LlmError` code mapping |
+| `src/serialize.ts` | harness `Message[]` → Converse inputs (`messages` / `system` / `toolConfig` / thinking fields), merges consecutive same-role turns, folds tool results into the user's `toolResult` block |
+| `src/translate.ts` | Converse stream events → harness `StreamChunk` (block-start/delta/end, usage, finish, stopReason mapping) |
+| `src/model.ts` | Per-model capability judgement by model id (tools / images / reasoning), Claude first |
+| `src/replay.ts` | Carries Claude extended-thinking `signature` back through a `ReplayEnvelope` for replay |
+| `src/types.ts` | Wire types reused from `@aws-sdk/client-bedrock-runtime` |
 
-## 与 DeepSeek provider 的关键差异
+## Key differences from the DeepSeek provider
 
-| 方面 | DeepSeek | Bedrock（本包） |
+| Aspect | DeepSeek | Bedrock (this package) |
 |---|---|---|
-| 协议 | OpenAI 兼容 REST + SSE | AWS Bedrock Converse（SDK EventStream，SDK 已解码为对象流） |
-| 认证 | Bearer token（credentials seam / 环境变量） | **AWS SigV4，SDK 默认凭证链**（不走 dsh credentials seam） |
-| 消息内容 | `type` 判别 union | tagged union（`{text}` / `{toolUse}` / `{toolResult}` / `{reasoningContent}`），每成员独立键 |
-| system prompt | 一条 `role:system` 消息 | 独立顶层 `system` 字段 |
-| tool 结果 | 独立 `role:tool` 消息 | user 消息里的 `toolResult` content block |
-| reasoning 回放 | 靠 `reasoning_content` 文本 | 需 Bedrock 下发的 `signature`，通过 replay state 携带 |
-| usage 缓存 | `prompt_tokens` 含缓存需减去 | `inputTokens` 已不含缓存，直接用 |
+| Protocol | OpenAI-compatible REST + SSE | AWS Bedrock Converse (SDK EventStream, already decoded into an object stream by the SDK) |
+| Auth | Bearer token (credentials seam / env vars) | **AWS SigV4, SDK default credential chain** (does not use the dsh credentials seam) |
+| Message content | `type` discriminated union | tagged union (`{text}` / `{toolUse}` / `{toolResult}` / `{reasoningContent}`), each member its own key |
+| System prompt | one `role:system` message | dedicated top-level `system` field |
+| Tool results | separate `role:tool` messages | a `toolResult` content block inside a user message |
+| Reasoning replay | relies on `reasoning_content` text | needs the `signature` emitted by Bedrock, carried through replay state |
+| Usage caching | `prompt_tokens` includes cache, must be subtracted | `inputTokens` already excludes cache, used directly |
 
-## 能力矩阵（按 model 家族）
+## Capability matrix (by model family)
 
-`src/model.ts` 里 `modelCapabilities(modelId)` 决定请求映射：
+`modelCapabilities(modelId)` in `src/model.ts` decides the request mapping:
 
-| 家族 | tools | images | reasoning |
+| Family | tools | images | reasoning |
 |---|---|---|---|
-| Claude（3.7 / 4+） | ✅ | ✅ | `claude-thinking`（`additionalModelRequestFields.thinking`） |
-| Claude（3.0 / 3.5） | ✅ | ✅ | 无 |
-| Nova | ✅ | ✅ | 无 |
-| Llama | ✅ | ✅ | 无 |
-| DeepSeek / Mistral | ✅ | ❌ | 无 |
-| Titan | ❌ | ❌ | 无 |
-| unknown | ✅ | ❌ | 无（安全下限） |
+| Claude (3.7 / 4+) | ✅ | ✅ | `claude-thinking` (`additionalModelRequestFields.thinking`) |
+| Claude (3.0 / 3.5) | ✅ | ✅ | none |
+| Nova | ✅ | ✅ | none |
+| Llama | ✅ | ✅ | none |
+| DeepSeek / Mistral | ✅ | ❌ | none |
+| Titan | ❌ | ❌ | none |
+| unknown | ✅ | ❌ | none (safe floor) |
 
-> 注：image 输入本包第一版尚未实现序列化（`serialize.ts` 对 image content 直接抛 `UNSUPPORTED_CONTENT`）。上表的 images 列表示模型本身是否支持，留待后续实现 image 序列化时打开。
+> Note: image input serialization is not yet implemented in this first version (`serialize.ts` throws `UNSUPPORTED_CONTENT` on image content). The `images` column above indicates whether the model itself supports images, reserved for when image serialization is added.
 
-reasoning effort（`off`/`low`/`high`/`max`）目前统一映射为"是否开启 thinking"+固定 `thinkingBudgetTokens`；如需按 effort 分档预算，改 `serialize.ts` 的 `resolveThinking`。
+reasoning effort (`off`/`low`/`high`/`max`) currently maps uniformly to "whether to enable thinking" plus a fixed `thinkingBudgetTokens`. To budget per effort tier, edit `resolveThinking` in `serialize.ts`.
 
-## 配置
+## Configuration
 
-所有字段可选。凭证**不在此配置**——由 AWS SDK 从 `AWS_PROFILE` / `AWS_ACCESS_KEY_ID`+`AWS_SECRET_ACCESS_KEY` / SSO / 容器 / 实例角色解析。
+Every field is optional. Credentials are **not** in this config — the AWS SDK resolves them from `AWS_PROFILE` / `AWS_ACCESS_KEY_ID`+`AWS_SECRET_ACCESS_KEY` / SSO / container / instance role.
 
-| 字段 | 默认 | 说明 |
+| Field | Default | Description |
 |---|---|---|
-| `region` | `$AWS_REGION` → `$AWS_DEFAULT_REGION` → SDK 解析 | AWS 区域 |
-| `profile` | SDK 默认 | 共享配置 profile 名 |
-| `endpoint` | 区域默认 | 覆盖 endpoint（VPC endpoint / gateway） |
-| `maxTokens` | 8192 | 默认输出上限，模型自身上限与请求显式值优先 |
-| `thinkingBudgetTokens` | 4096 | Claude thinking 通道 token 预算 |
-| `defaultContextWindow` | 200000 | 目录未给出时的上下文容量 |
-| `models` | 两个 Claude 条目 | 咨询用目录，不限制实际可用 model |
-| `streamIdleTimeoutMs` | 300000 | 单次流读空闲超时 |
-| `retryPolicy` | normal / 5 次 | provider 级重试策略 |
+| `region` | `$AWS_REGION` → `$AWS_DEFAULT_REGION` → SDK resolution | AWS region |
+| `profile` | SDK default | shared-config profile name |
+| `endpoint` | regional default | override endpoint (VPC endpoint / gateway) |
+| `maxTokens` | 8192 | default output cap; the model's own cap and an explicit per-request value win |
+| `thinkingBudgetTokens` | 4096 | token budget for the Claude thinking channel |
+| `defaultContextWindow` | 200000 | context capacity used when the catalog does not provide one |
+| `models` | two Claude entries | advisory catalog; does not restrict which models can actually be used |
+| `streamIdleTimeoutMs` | 300000 | idle timeout for a single stream read |
+| `retryPolicy` | normal / 5 attempts | provider-level retry policy |
 
-示例见 [`examples/cordis.yml`](examples/cordis.yml)。
+See [`examples/cordis.yml`](examples/cordis.yml) for an example.
 
-## 如何集成到 dsh
+## How to integrate into dsh
 
-> **前提说明**：dsh 的核心包已作为独立包发布到 npm（`@deepseek-ai/dsh-llm`、`@deepseek-ai/dsh-settings`、`@deepseek-ai/dsh-launch-environment`、`@deepseek-ai/dsh-timeout`、`@deepseek-ai/cordis`、`@deepseek-ai/schemastery`，发布线 `0.0.1-rc.x` / `0.1.1-rc.x`）。因此本包可以作为**第三方 out-of-tree 插件**装进一个用 `npm i -g @deepseek-ai/dsh` 安装的产品版 dsh，无需改动 dsh 源码或 monorepo。本包的 `peerDependencies` 已按发布版本号声明，安装时缺失的 peer（cordis 等）会 fall through 到 dsh 安装自带的依赖，与 dsh 共用同一个 cordis 实例。
+> **Prerequisite**: dsh's core packages are published to npm as standalone packages (`@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-settings`, `@deepseek-ai/dsh-launch-environment`, `@deepseek-ai/dsh-timeout`, `@deepseek-ai/cordis`, `@deepseek-ai/schemastery`, release lines `0.0.1-rc.x` / `0.1.1-rc.x`). This package can therefore be installed as a **third-party out-of-tree plugin** into a production dsh installed via `npm i -g @deepseek-ai/dsh`, without touching dsh source or the monorepo. This package's `peerDependencies` are declared against the published version numbers; a peer missing at install time (cordis, etc.) falls through to the dependency dsh's install already carries, sharing the same cordis instance as dsh.
 
-### dsh 的插件加载机制（背景）
+### How dsh loads plugins (background)
 
-- `dsh --profile <name>` 启动。profile 是 `$DSH_HOME/profiles/<name>/` 目录，含 `package.json`（声明 out-of-tree 插件）和 `cordis.patch.yml`（用户配置补丁层，热加载）。
-- `dsh plugin --profile <name> <pnpm 参数...>` 是一个 **pnpm 转发器**：它在 profile 目录里跑 pnpm，因此支持 npm 包名、本地路径、`file:`、`git+https://...`、tarball 等一切 pnpm add 能接受的 spec。**要求 pnpm 在 PATH 上**（否则报 exit 127）。
-- 装进来的包若声明了 `dsh.bundle` 才会自动进 layer；本包是普通 provider 插件（无 `dsh.bundle`），会作为普通依赖装入（安装时会打印一行 "declares no dsh.bundle" 的 warning，属正常），**需要手动在 `cordis.patch.yml` 挂载**（见下）。
+- `dsh --profile <name>` starts up. A profile is the `$DSH_HOME/profiles/<name>/` directory, containing `package.json` (declares out-of-tree plugins) and `cordis.patch.yml` (a hot-reloaded user config patch layer).
+- `dsh plugin --profile <name> <pnpm args...>` is a **pnpm forwarder**: it runs pnpm inside the profile directory, so it accepts any spec `pnpm add` accepts — npm package names, local paths, `file:`, `git+https://...`, tarballs, etc. **pnpm must be on PATH** (otherwise it fails with exit 127).
+- An installed package only auto-joins the layer if it declares `dsh.bundle`. This package is a plain provider plugin (no `dsh.bundle`), so it installs as an ordinary dependency (a "declares no dsh.bundle" warning prints at install time — this is normal) and **must be mounted manually in `cordis.patch.yml`** (see below).
 
-### 步骤
+### Steps
 
-以 `headless` profile 为例（`web` 同理，把 `headless` 换成 `web`）。
+Using the `headless` profile as an example (`web` is identical — replace `headless` with `web`).
 
-> **前置：构建工具链。** `dsh plugin ... add` 会在 profile 目录里跑 pnpm，安装时通过本包的 `prepare` 脚本执行 `tsc` 编译。因此需要：
-> - `pnpm` 在 PATH 上（否则 exit 127）。若只有 Node，可用 `corepack enable pnpm` 提供。
-> - 本包的 `devDependencies` 已包含 `@types/node` 与 `typescript`，`tsconfig` 的 `types: ["node"]` 依赖前者；作为 out-of-tree git/本地包安装时，pnpm 会在隔离目录里按本包自己的 `devDependencies` 构建，缺任一项都会导致 `tsc` 失败。
+> **Prerequisite: build toolchain.** `dsh plugin ... add` runs pnpm inside the profile directory, which compiles this package via `tsc` through its `prepare` script at install time. So you need:
+> - `pnpm` on PATH (otherwise exit 127). If you only have Node, `corepack enable pnpm` provides it.
+> - This package's `devDependencies` already include `@types/node` and `typescript`; the tsconfig's `types: ["node"]` depends on the former. When installed as an out-of-tree git/local package, pnpm builds it in an isolated directory against this package's own `devDependencies`, and a missing one makes `tsc` fail.
 
-#### 1. 安装本插件到 profile
+#### 1. Install this plugin into the profile
 
-**从 GitHub 装（推荐，配合本仓库）：**
+**From GitHub (recommended, pairs with this repo):**
 ```sh
-dsh plugin --profile headless add git+https://github.com/<你的用户名>/<仓库名>.git
+dsh plugin --profile headless add git+https://github.com/<your-username>/<repo-name>.git
 ```
-本仓库的 `prepare` 脚本会在安装时自动 `tsc` 编译出 `lib/`。
+This repo's `prepare` script runs `tsc` at install time to produce `lib/`.
 
-> pnpm ≥10 默认拦截 git 依赖的 `prepare`（构建）脚本。若安装报错提示某个包的 build 被阻止，按 pnpm 输出的提示，在 `$DSH_HOME/profiles/headless/pnpm-workspace.yaml` 的 `allowBuilds:` 下加上它给出的确切 key，然后重跑。该 key 内含 git tarball 的 commit SHA，**每次仓库有新提交后 key 会变**，需按新的报错更新。
+> pnpm ≥10 blocks the `prepare` (build) script of git dependencies by default. If the install errors saying a package's build was blocked, follow pnpm's output and add the exact key it gives under `allowBuilds:` in `$DSH_HOME/profiles/headless/pnpm-workspace.yaml`, then rerun. That key embeds the git tarball's commit SHA, so **the key changes on every new commit to the repo** and must be updated per the new error.
 
-**或从本地目录装（先克隆本仓库到服务器）：**
+**Or from a local directory (clone this repo to the server first):**
 ```sh
-git clone https://github.com/<你的用户名>/<仓库名>.git
-cd <仓库名> && npm install && npm run build
+git clone https://github.com/<your-username>/<repo-name>.git
+cd <repo-name> && npm install && npm run build
 dsh plugin --profile headless add "$(pwd)"
 ```
 
-**或（将来）本包发布到 npm 后：**
+**Or (in future) once this package is published to npm:**
 ```sh
 dsh plugin --profile headless add @deepseek-ai/dsh-llm-bedrock
 ```
 
-#### 2. 在 profile 的 cordis.patch.yml 挂载 adapter
+#### 2. Mount the adapter in the profile's cordis.patch.yml
 
-编辑 `$DSH_HOME/profiles/headless/cordis.patch.yml`（初始内容是 `[]`），改为：
+Edit `$DSH_HOME/profiles/headless/cordis.patch.yml` (initial content is `[]`) to:
 ```yaml
 - insert:
     - id: llm-bedrock
@@ -124,50 +124,49 @@ dsh plugin --profile headless add @deepseek-ai/dsh-llm-bedrock
       config:
         region: us-east-1
 ```
-热加载，保存即生效。完整配置字段见上文"配置"表。
+It hot-reloads — saving takes effect immediately. See the "Configuration" table above for all fields.
 
-#### 3. 把默认模型指向 Bedrock Claude
+#### 3. Point the default model at Bedrock Claude
 
-编辑 `$DSH_HOME/settings.yaml`（热加载）。section key 为 `agent-default-model`，字段 `provider` / `model` / 可选 `reasoningEffort`：
+Edit `$DSH_HOME/settings.yaml` (hot-reloaded). The section key is `agent-default-model`, with fields `provider` / `model` / optional `reasoningEffort`:
 ```yaml
 agent-default-model:
   provider: bedrock
   model: us.anthropic.claude-sonnet-4-20250514-v1:0
-  # reasoningEffort: high   # 开启 Claude extended thinking；省略则关闭
+  # reasoningEffort: high   # enables Claude extended thinking; omit to disable
 ```
-> 也可在 `llm-bedrock:` 段覆盖插件配置（如 region），它会覆盖步骤 2 里 cordis.patch.yml 的 config：
+> You can also override the plugin config in the `llm-bedrock:` section (e.g. region), which overrides the config in step 2's cordis.patch.yml:
 > ```yaml
 > llm-bedrock:
 >   region: us-east-1
 > ```
 
-#### 4. 配置 AWS 凭证与模型开通
+#### 4. Configure AWS credentials and model access
 
-- **凭证**：本包走 AWS SDK 默认凭证链，服务器上任选其一即可 —— 环境变量 `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`（临时凭证再加 `AWS_SESSION_TOKEN`）、`~/.aws/credentials` 的 profile（配 `profile:` 或 `AWS_PROFILE`）、或 EC2/ECS 的 IAM role。
-- **region**：`config.region` > `AWS_REGION` / `AWS_DEFAULT_REGION` > SDK 解析。
-- **模型开通**：在目标 region 的 Bedrock 控制台 **Model access** 里申请开通目标 Claude 模型，否则请求会 `AccessDeniedException`。
+- **Credentials**: this package uses the AWS SDK default credential chain — any one on the server works: env vars `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (plus `AWS_SESSION_TOKEN` for temporary credentials), a `~/.aws/credentials` profile (set `profile:` or `AWS_PROFILE`), or an EC2/ECS IAM role.
+- **region**: `config.region` > `AWS_REGION` / `AWS_DEFAULT_REGION` > SDK resolution.
+- **Model access**: request access to the target Claude model under **Model access** in the Bedrock console for the target region, otherwise requests fail with `AccessDeniedException`.
 
-#### 5. 运行
+#### 5. Run
 
 ```sh
-dsh --profile headless "介绍一下你自己"
-# 或 web：
+dsh --profile headless "Introduce yourself"
+# or web:
 dsh --profile web
 ```
 
-### 备选：作为 monorepo 内部包（源码开发时）
+### Alternative: as a monorepo internal package (during source development)
 
-若你是在 dsh 源码 monorepo 里开发，也可把本目录拷到 `packages/llm/llm-bedrock`，把 `peerDependencies` / `dependencies` 里的 `@deepseek-ai/*` 版本号换回 `workspace:^`，tsconfig 换成 `extends ../../../tsconfig.base.json` + project references（references：`vendor/cordis`、`vendor/schemastery`、`llm/llm`、`settings/settings`、`util/launch-environment`、`util/timeout`），并在目标 app 的 `package.json` 依赖里声明本包（`verify-cordis-config` 要求裸插件名出现在依赖清单）。然后 `pnpm install && pnpm typecheck && pnpm build`。
+If you develop inside the dsh source monorepo, you can copy this directory to `packages/llm/llm-bedrock`, change the `@deepseek-ai/*` versions in `peerDependencies` / `dependencies` back to `workspace:^`, switch the tsconfig to `extends ../../../tsconfig.base.json` + project references (references: `vendor/cordis`, `vendor/schemastery`, `llm/llm`, `settings/settings`, `util/launch-environment`, `util/timeout`), and declare this package in the target app's `package.json` dependencies (`verify-cordis-config` requires the bare plugin name to appear in the dependency list). Then run `pnpm install && pnpm typecheck && pnpm build`.
 
-## 验证状态
+## Verification status
 
-已用**真实 AWS SDK 类型**在严格模式（`strict` + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`）下对全部源码做类型检查，dsh 包用照真实签名转写的类型 stub 顶替，结果 **0 error**。这覆盖了：AWS SDK 用法正确性、本包内部逻辑类型自洽、以及对 dsh 接口的调用与其真实签名一致。
+All source has been type-checked with the **real AWS SDK types** under strict mode (`strict` + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`), with dsh packages substituted by type stubs transcribed from their real signatures, yielding **0 errors**. This covers: correctness of AWS SDK usage, internal type consistency of this package, and that calls into the dsh interface match its real signatures.
 
-装进真实 dsh 后建议先跑一次 `npm run build`（本仓库已含此脚本）做最终编译确认 —— 真实 schemastery `z<T>` schema、真实 `installSettingsSection` 泛型只有在真依赖下才能完全校验。
+After installing into a real dsh, it is recommended to run `npm run build` once (this repo includes the script) for a final compile confirmation — the real schemastery `z<T>` schema and the real `installSettingsSection` generics can only be fully validated against the real dependencies.
 
-## 待办 / 后续
+## TODO / follow-ups
 
-- image 输入序列化（`toImage` content block），并接 dsh attachment seam。
-- reasoning effort 按档位映射不同 `budget_tokens`。
-- provider 级 e2e / snapshot 测试（需真实 AWS 凭证或 mock Bedrock 端点）。
-
+- Image input serialization (`toImage` content block), wired to the dsh attachment seam.
+- Map reasoning effort tiers to different `budget_tokens`.
+- Provider-level e2e / snapshot tests (requires real AWS credentials or a mock Bedrock endpoint).
