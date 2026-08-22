@@ -12,7 +12,16 @@
  */
 
 /** Coarse Bedrock model family derived from a model id, inference profile, or ARN. */
-export type ModelFamily = 'claude' | 'nova' | 'llama' | 'deepseek' | 'mistral' | 'titan' | 'unknown'
+export type ModelFamily =
+  | 'claude'
+  | 'nova'
+  | 'llama'
+  | 'deepseek'
+  | 'mistral'
+  | 'titan'
+  | 'openai'
+  | 'grok'
+  | 'unknown'
 
 /** Provider-neutral capability facts one request maps against. */
 export interface ModelCapabilities {
@@ -27,10 +36,9 @@ export interface ModelCapabilities {
    *  - `claude-thinking` drives Claude extended thinking through
    *    `additionalModelRequestFields.thinking` with an effort-tiered
    *    `budget_tokens`;
-   *  - `openai-reasoning` and `grok-reasoning` name the OpenAI (gpt-oss) and
-   *    xAI Grok reasoning channels — predeclared here so the request mapping
-   *    can dispatch on the channel, but not yet implemented by this adapter
-   *    (they resolve to no reasoning fields until their branch lands);
+   *  - `openai-reasoning` and `grok-reasoning` drive the OpenAI (gpt-oss +
+   *    GPT-5.x) and xAI Grok reasoning channels through a `reasoning_effort`
+   *    string in `additionalModelRequestFields`;
    *  - `none` means the model has no reasoning knob this adapter drives.
    */
   reasoning: 'claude-thinking' | 'openai-reasoning' | 'grok-reasoning' | 'none'
@@ -51,6 +59,12 @@ export function modelFamily(modelId: string): ModelFamily {
   if (id.includes('deepseek')) return 'deepseek'
   if (id.includes('mistral') || id.includes('mixtral')) return 'mistral'
   if (id.includes('titan')) return 'titan'
+  // xAI Grok: `xai.grok-*` (plus `us.`/`eu.`/`apac.` cross-region prefixes).
+  if (id.includes('grok') || id.includes('xai.')) return 'grok'
+  // OpenAI on Bedrock: gpt-oss (`openai.gpt-oss-*`) and the GPT-5.x line
+  // (`openai.gpt-5.6-*`). Match the provider token and the `gpt` model token so
+  // both bare ids and cross-region inference profiles classify the same.
+  if (id.includes('openai') || id.includes('gpt-oss') || id.includes('gpt')) return 'openai'
   return 'unknown'
 }
 
@@ -65,6 +79,17 @@ function claudeReasons(id: string): boolean {
   if (lower.includes('claude-3-7') || lower.includes('claude-3.7')) return true
   // Claude 4 and 4.5 families (sonnet-4, opus-4, haiku-4, ...).
   return /claude-(?:sonnet-|opus-|haiku-)?[4-9]/.test(lower)
+}
+
+/**
+ * Whether an OpenAI-family id names a gpt-oss model rather than a hosted
+ * GPT-5.x model. The two split on image input: gpt-oss (`gpt-oss-20b/120b`,
+ * `gpt-oss-safeguard-*`) is text-only on Bedrock, while the GPT-5.x line accepts
+ * image content. Both expose an OpenAI reasoning channel, so this only gates
+ * the `images` capability — a family-level branch, not a per-model allowlist.
+ */
+function openaiIsGptOss(id: string): boolean {
+  return id.toLowerCase().includes('gpt-oss')
 }
 
 /**
@@ -96,6 +121,19 @@ export function modelCapabilities(modelId: string): ModelCapabilities {
       return { family, tools: true, images: false, reasoning: 'none' }
     case 'titan':
       return { family, tools: false, images: false, reasoning: 'none' }
+    case 'openai':
+      // gpt-oss is text-only on Bedrock; the GPT-5.x line takes image input.
+      // Both drive the OpenAI reasoning channel via `reasoning_effort`.
+      return {
+        family,
+        tools: true,
+        images: !openaiIsGptOss(modelId),
+        reasoning: 'openai-reasoning',
+      }
+    case 'grok':
+      // Grok 4.x is reasoning-first with a configurable effort; it accepts image
+      // input on Bedrock.
+      return { family, tools: true, images: true, reasoning: 'grok-reasoning' }
     default:
       return { family: 'unknown', tools: true, images: false, reasoning: 'none' }
   }

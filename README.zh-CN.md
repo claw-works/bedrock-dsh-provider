@@ -49,12 +49,21 @@
 | Nova | ✅ | ✅ | 无 |
 | Llama | ✅ | ✅ | 无 |
 | DeepSeek / Mistral | ✅ | ❌ | 无 |
+| OpenAI（GPT-5.x） | ✅ | ✅ | `openai-reasoning`（`additionalModelRequestFields.reasoning_effort`） |
+| OpenAI（gpt-oss） | ✅ | ❌ | `openai-reasoning`（`additionalModelRequestFields.reasoning_effort`） |
+| Grok（4.x） | ✅ | ✅ | `grok-reasoning`（`additionalModelRequestFields.reasoning_effort`） |
 | Titan | ❌ | ❌ | 无 |
 | unknown | ✅ | ❌ | 无（安全下限） |
 
 > 注：image 输入本包第一版尚未实现序列化（`serialize.ts` 对 image content 直接抛 `UNSUPPORTED_CONTENT`）。上表的 images 列表示模型本身是否支持，留待后续实现 image 序列化时打开。
 
-reasoning effort（`off`/`low`/`high`/`max`）开启 Claude extended thinking，并按档位映射 `budget_tokens`：`low`/`high`/`max` 各取自己的预算（内置默认 1024 / 4096 / 16384，可通过 `thinkingBudgetByEffort` 逐档覆盖），`medium` 视作 `high`，`off` / 省略则关闭 thinking。映射在 `serialize.ts` 的 `resolveThinking` 中按模型 reasoning 通道（`ModelCapabilities.reasoning`）分发，`openai-reasoning` / `grok-reasoning` 已预留分支。未单独配置的档位回退到 `thinkingBudgetTokens`。
+reasoning effort（`off`/`low`/`high`/`max`）开启模型的 reasoning 通道，映射在 `serialize.ts` 的 `resolveThinking` 中按模型 reasoning 通道（`ModelCapabilities.reasoning`）分发：
+
+- **Claude**（`claude-thinking`）：按档位映射 `additionalModelRequestFields.thinking.budget_tokens`——`low`/`high`/`max` 各取自己的预算（内置默认 1024 / 4096 / 16384，可通过 `thinkingBudgetByEffort` 逐档覆盖），`medium` 视作 `high`，未单独配置的档位回退到 `thinkingBudgetTokens`。
+- **OpenAI**（`openai-reasoning`，gpt-oss + GPT-5.x）与 **Grok**（`grok-reasoning`，4.x）：映射成 `additionalModelRequestFields.reasoning_effort` 字符串（`low` / `medium` / `high`），`max` 归一到 `high`。
+- `off` / 省略则完全关闭 reasoning，内部 `session-title` 用途也从不请求 reasoning。
+
+由于映射以 `ModelCapabilities.reasoning` 为键，Claude 的 `thinking` 字段绝不会发给 OpenAI/Grok，它们的 `reasoning_effort` 也绝不会发给 Claude；无 reasoning 通道的家族不下发任何 reasoning 字段。
 
 ## 配置
 

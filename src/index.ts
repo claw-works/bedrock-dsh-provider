@@ -67,6 +67,16 @@ const DEFAULT_MODELS: BedrockCatalogModel[] = [
     name: 'Claude 3.7 Sonnet',
     contextWindow: DEFAULT_CONTEXT_WINDOW,
   },
+  {
+    id: 'openai.gpt-oss-120b-1:0',
+    name: 'OpenAI GPT-OSS 120B',
+    contextWindow: DEFAULT_CONTEXT_WINDOW,
+  },
+  {
+    id: 'xai.grok-4.6',
+    name: 'xAI Grok 4.6',
+    contextWindow: DEFAULT_CONTEXT_WINDOW,
+  },
 ]
 
 /**

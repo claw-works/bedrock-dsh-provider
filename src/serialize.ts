@@ -236,9 +236,9 @@ export function serializeRequest(
  * Resolve the `additionalModelRequestFields` that turn on a model's reasoning
  * channel, or `undefined` when reasoning is off or the model has no channel
  * this adapter drives. The mapping dispatches on
- * {@link ModelCapabilities.reasoning}: today only `claude-thinking` is
- * implemented; `openai-reasoning` and `grok-reasoning` are recognised as future
- * branches and resolve to `undefined` until their mapping lands.
+ * {@link ModelCapabilities.reasoning}: `claude-thinking` sends an effort-tiered
+ * `thinking.budget_tokens`, while `openai-reasoning` and `grok-reasoning` send a
+ * `reasoning_effort` string in their own tier vocabulary.
  *
  * For Claude, Bedrock requires the sampling temperature to be unset (it forces
  * 1.0) while thinking is on; the caller-supplied temperature is simply not sent
@@ -270,15 +270,64 @@ function resolveThinking(
           budget_tokens: claudeThinkingBudget(effort, defaults),
         },
       }
-    // Predeclared channels for OpenAI (gpt-oss) and xAI Grok — dispatched here
-    // so a later issue only fills in the mapping, not the routing. Until then
-    // they send no reasoning fields.
+    // OpenAI (gpt-oss + GPT-5.x) and xAI Grok both expose their reasoning
+    // channel through a `reasoning_effort` string in additionalModelRequestFields
+    // rather than Claude's token budget. They differ only in the accepted tier
+    // set, so each maps the harness effort id to its own vocabulary.
     case 'openai-reasoning':
+      return { reasoning_effort: openaiReasoningEffort(effort) }
     case 'grok-reasoning':
+      return { reasoning_effort: grokReasoningEffort(effort) }
     case 'none':
       return undefined
     default:
       return undefined
+  }
+}
+
+/**
+ * Map a harness reasoning-effort id onto the `reasoning_effort` value OpenAI
+ * models on Bedrock accept (`low` / `medium` / `high`). gpt-oss and the GPT-5.x
+ * line share this vocabulary; there is no `none` tier (reasoning-off is already
+ * handled upstream by returning no fields), so `low`/`high`/`max` fold into the
+ * three OpenAI tiers with `max` treated as the top `high` tier.
+ * @param effort - the caller's reasoning-effort id (already known non-off).
+ * @returns the OpenAI `reasoning_effort` string.
+ */
+function openaiReasoningEffort(effort: string): 'low' | 'medium' | 'high' {
+  switch (effort) {
+    case 'low':
+      return 'low'
+    case 'medium':
+      return 'medium'
+    case 'high':
+    case 'max':
+      return 'high'
+    default:
+      return 'medium'
+  }
+}
+
+/**
+ * Map a harness reasoning-effort id onto the `reasoning_effort` value xAI Grok
+ * on Bedrock accepts. Grok 4.x is reasoning-first with tiers
+ * `none` / `low` / `medium` / `high`; reasoning-off is handled upstream, so the
+ * caller's non-off effort maps to `low`/`medium`/`high` with `max` treated as
+ * the top `high` tier.
+ * @param effort - the caller's reasoning-effort id (already known non-off).
+ * @returns the Grok `reasoning_effort` string.
+ */
+function grokReasoningEffort(effort: string): 'low' | 'medium' | 'high' {
+  switch (effort) {
+    case 'low':
+      return 'low'
+    case 'medium':
+      return 'medium'
+    case 'high':
+    case 'max':
+      return 'high'
+    default:
+      return 'medium'
   }
 }
 
