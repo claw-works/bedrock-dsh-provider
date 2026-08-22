@@ -25,6 +25,7 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-attachment": "^0.0.1-rc.1",
     "@deepseek-ai/dsh-settings": "^0.0.1-rc.1",
     "@deepseek-ai/dsh-launch-environment": "^0.0.1-rc.1",
     "@deepseek-ai/dsh-timeout": "^0.0.1-rc.1",
@@ -38,6 +39,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-attachment": "^0.0.1-rc.1",
     "@deepseek-ai/dsh-settings": "^0.0.1-rc.1",
     "@deepseek-ai/dsh-launch-environment": "^0.0.1-rc.1",
     "@deepseek-ai/dsh-timeout": "^0.0.1-rc.1",

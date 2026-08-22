@@ -21,6 +21,7 @@
 
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock as HarnessBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ModelCapabilities } from './model.js'
 import { openaiIsGptOss } from './model.js'
 import { REASONING_SIGNATURES_KEY, type ReasoningSignatures } from './replay.js'
@@ -29,6 +30,7 @@ import type {
   ConverseStreamCommandInput,
   BedrockMessage,
   DocumentType,
+  ImageFormat,
   SystemContentBlock,
   Tool,
   ToolConfiguration,
@@ -61,6 +63,28 @@ export interface RequestDefaults {
   thinkingBudgetByEffort?: Partial<ThinkingBudgetByEffort>
 }
 
+/**
+ * Read the raw bytes for one durable image reference through the attachment
+ * seam (`ctx.attachments.readImage`). Serialization stays decoupled from cordis
+ * by taking this thunk rather than the whole store; the adapter supplies it.
+ * @param ref - the durable image reference carried on a harness image block.
+ * @returns the verified encoded image bytes.
+ */
+export type ImageReader = (ref: ImageAttachmentRef) => Promise<Uint8Array>
+
+/**
+ * Map a harness attachment media type onto the Bedrock Converse image format.
+ * The two vocabularies are 1:1 for the version-one raster set; an unrecognised
+ * media type is a programming error against {@link ImageMediaType}, surfaced as
+ * an explicit mapping failure rather than a silently dropped block.
+ */
+const IMAGE_FORMAT_BY_MEDIA_TYPE: Readonly<Record<ImageMediaType, ImageFormat>> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpeg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+}
+
 /** Read the reasoning signatures an assistant message carried on its replay state. */
 function reasoningSignatures(message: Message): ReasoningSignatures | undefined {
   if (message.source.kind !== 'model') return undefined
@@ -82,11 +106,47 @@ function flattenText(blocks: readonly HarnessBlock[]): string {
     .join('')
 }
 
-/** Reject image content: this first version maps text, tool, and reasoning only. */
-function assertNoImages(blocks: readonly HarnessBlock[]): void {
-  if (blocks.some(block => block.type === 'image')) {
-    throw new LlmError('The Bedrock adapter does not support image content yet.', 'UNSUPPORTED_CONTENT')
+/**
+ * Build the Bedrock image content block for one harness image block, reading
+ * its bytes through the attachment seam. The caller has already established the
+ * model accepts images; this maps the media type to a Converse `format` and
+ * carries the raw bytes inline (the AWS SDK base64-encodes them on the wire).
+ * @param block - the harness image block.
+ * @param readImage - the attachment-seam byte reader.
+ * @returns the Converse image content block.
+ */
+async function imageContent(
+  block: Extract<HarnessBlock, { type: 'image' }>,
+  readImage: ImageReader,
+): Promise<ContentBlock> {
+  // Index through a Partial view so an out-of-vocabulary media type (a widened
+  // ImageMediaType from a future harness) reaches the runtime guard below
+  // rather than being assumed present by the type.
+  const format = (IMAGE_FORMAT_BY_MEDIA_TYPE as Partial<Record<string, ImageFormat>>)[block.attachment.mediaType]
+  if (format === undefined) {
+    throw new LlmError(
+      `The Bedrock adapter cannot map image media type "${block.attachment.mediaType}" to a Converse format.`,
+      'UNSUPPORTED_CONTENT',
+    )
   }
+  const bytes = await readImage(block.attachment)
+  return { image: { format, source: { bytes } } }
+}
+
+/**
+ * Reject image content on a model whose family does not accept images. The
+ * error names both the model id and the resolved family so an operator can see
+ * why a request that carried an image was refused.
+ * @param capabilities - the resolved capabilities of the request model.
+ * @param modelId - the model id the request targets.
+ * @throws LlmError('UNSUPPORTED_CONTENT') when the family cannot take images.
+ */
+function assertImagesAllowed(capabilities: ModelCapabilities, modelId: string): void {
+  if (capabilities.images) return
+  throw new LlmError(
+    `The Bedrock model "${modelId}" (family "${capabilities.family}") does not accept image content.`,
+    'UNSUPPORTED_CONTENT',
+  )
 }
 
 /** Build the Bedrock content blocks for one assistant turn. */
@@ -142,11 +202,15 @@ function parseToolInput(raw: string): DocumentType {
 }
 
 /** Build the Bedrock content blocks contributed by one user-role harness turn. */
-function userContent(message: Message): ContentBlock[] {
+async function userContent(message: Message, readImage: ImageReader): Promise<ContentBlock[]> {
   const blocks: ContentBlock[] = []
   const text = flattenText(message.content)
   if (text.length > 0) blocks.push({ text })
   for (const block of message.content) {
+    if (block.type === 'image') {
+      blocks.push(await imageContent(block, readImage))
+      continue
+    }
     if (block.type !== 'tool-result') continue
     const resultText = flattenText(block.content)
     blocks.push({
@@ -162,18 +226,30 @@ function userContent(message: Message): ContentBlock[] {
 
 /**
  * Convert the harness conversation to Bedrock messages, merging consecutive
- * same-role turns so the result strictly alternates user / assistant.
+ * same-role turns so the result strictly alternates user / assistant. Image
+ * content is mapped through the attachment seam when the model accepts images,
+ * and rejected with a clear error otherwise.
  * @param messages - the harness conversation, in order.
+ * @param capabilities - resolved capabilities of the request model.
+ * @param modelId - the model id the request targets (named in image errors).
+ * @param readImage - attachment-seam byte reader for durable image references.
  * @returns Bedrock messages ready for the Converse `messages` field.
  */
-export function serializeMessages(messages: readonly Message[]): BedrockMessage[] {
+export async function serializeMessages(
+  messages: readonly Message[],
+  capabilities: ModelCapabilities,
+  modelId: string,
+  readImage: ImageReader,
+): Promise<BedrockMessage[]> {
   const wire: BedrockMessage[] = []
   for (const message of messages) {
-    assertNoImages(message.content)
+    if (message.content.some(block => block.type === 'image')) {
+      assertImagesAllowed(capabilities, modelId)
+    }
     // A system-role message here would be unusual (the system prompt travels
     // in GenerateOptions.system), but map it as a leading user note if present.
     const role: 'user' | 'assistant' = message.role === 'assistant' ? 'assistant' : 'user'
-    const content = role === 'assistant' ? assistantContent(message) : userContent(message)
+    const content = role === 'assistant' ? assistantContent(message) : await userContent(message, readImage)
     if (content.length === 0) continue
     const last = wire[wire.length - 1]
     if (last !== undefined && last.role === role) {
@@ -203,13 +279,15 @@ function toolConfig(options: GenerateOptions): ToolConfiguration | undefined {
  * @param options - the harness request (model, history, system, tools, sampling).
  * @param capabilities - the resolved capabilities of `options.model`.
  * @param defaults - adapter-level request defaults (thinking budget).
+ * @param readImage - attachment-seam byte reader for durable image references.
  * @returns the ConverseStream command input.
  */
-export function serializeRequest(
+export async function serializeRequest(
   options: GenerateOptions,
   capabilities: ModelCapabilities,
   defaults: RequestDefaults,
-): ConverseStreamCommandInput {
+  readImage: ImageReader,
+): Promise<ConverseStreamCommandInput> {
   const system: SystemContentBlock[] | undefined = options.system === undefined
     ? undefined
     : [{ text: options.system }]
@@ -222,10 +300,11 @@ export function serializeRequest(
 
   const config = capabilities.tools ? toolConfig(options) : undefined
   const thinking = resolveThinking(options, capabilities, defaults)
+  const messages = await serializeMessages(options.messages, capabilities, options.model, readImage)
 
   return {
     modelId: options.model,
-    messages: serializeMessages(options.messages),
+    messages,
     ...system === undefined ? {} : { system },
     ...config === undefined ? {} : { toolConfig: config },
     ...Object.keys(inferenceConfig).length > 0 ? { inferenceConfig } : {},
