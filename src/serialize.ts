@@ -22,6 +22,7 @@
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock as HarnessBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { ModelCapabilities } from './model.js'
+import { openaiIsGptOss } from './model.js'
 import { REASONING_SIGNATURES_KEY, type ReasoningSignatures } from './replay.js'
 import type {
   ContentBlock,
@@ -270,12 +271,17 @@ function resolveThinking(
           budget_tokens: claudeThinkingBudget(effort, defaults),
         },
       }
-    // OpenAI (gpt-oss + GPT-5.x) and xAI Grok both expose their reasoning
-    // channel through a `reasoning_effort` string in additionalModelRequestFields
-    // rather than Claude's token budget. They differ only in the accepted tier
-    // set, so each maps the harness effort id to its own vocabulary.
+    // OpenAI (gpt-oss + GPT-5.x) and xAI Grok expose reasoning through
+    // additionalModelRequestFields rather than Claude's token budget, but the
+    // wire shape differs within the OpenAI family: gpt-oss takes a flat
+    // `reasoning_effort` string, while the GPT-5.x line rejects that and takes a
+    // nested `reasoning.effort` (verified against Bedrock — a flat
+    // `reasoning_effort` returns unknown_parameter for GPT-5.x). Grok takes the
+    // flat `reasoning_effort`.
     case 'openai-reasoning':
-      return { reasoning_effort: openaiReasoningEffort(effort) }
+      return openaiIsGptOss(options.model)
+        ? { reasoning_effort: openaiReasoningEffort(effort) }
+        : { reasoning: { effort: openaiReasoningEffort(effort) } }
     case 'grok-reasoning':
       return { reasoning_effort: grokReasoningEffort(effort) }
     case 'none':
@@ -286,13 +292,14 @@ function resolveThinking(
 }
 
 /**
- * Map a harness reasoning-effort id onto the `reasoning_effort` value OpenAI
- * models on Bedrock accept (`low` / `medium` / `high`). gpt-oss and the GPT-5.x
- * line share this vocabulary; there is no `none` tier (reasoning-off is already
- * handled upstream by returning no fields), so `low`/`high`/`max` fold into the
- * three OpenAI tiers with `max` treated as the top `high` tier.
+ * Map a harness reasoning-effort id onto the `effort` value OpenAI models on
+ * Bedrock accept (`low` / `medium` / `high`). gpt-oss sends it as a flat
+ * `reasoning_effort`, GPT-5.x as `reasoning.effort`; the tier vocabulary is the
+ * same. There is no `none` tier here (reasoning-off is handled upstream by
+ * returning no fields), so `low`/`high`/`max` fold into the three OpenAI tiers
+ * with `max` treated as the top `high` tier.
  * @param effort - the caller's reasoning-effort id (already known non-off).
- * @returns the OpenAI `reasoning_effort` string.
+ * @returns the OpenAI effort string.
  */
 function openaiReasoningEffort(effort: string): 'low' | 'medium' | 'high' {
   switch (effort) {

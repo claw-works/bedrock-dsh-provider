@@ -219,16 +219,17 @@ export class BedrockAdapter extends LlmAdapter {
         : modelInfo(provider, configured),
       context: { contextWindow },
       defaultMaxTokens: configured?.maxTokens ?? connection.maxTokens,
-      // Only reasoning-capable Claude generations expose an effort selector;
-      // every other model reports no reasoning knob at all.
-      ...capabilities.reasoning === 'claude-thinking'
-        ? {
+      // Every model with a reasoning channel this adapter drives
+      // (claude-thinking / openai-reasoning / grok-reasoning) exposes the effort
+      // selector; models with `reasoning: 'none'` report no reasoning knob.
+      ...capabilities.reasoning === 'none'
+        ? {}
+        : {
           reasoning: {
             efforts: REASONING_EFFORTS,
             defaultEffort: OFF_REASONING_EFFORT,
           },
-        }
-        : {},
+        },
     })
   }
 

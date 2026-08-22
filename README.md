@@ -49,7 +49,7 @@ It implements the three roles of the dsh LLM seam:
 | Nova | ✅ | ✅ | none |
 | Llama | ✅ | ✅ | none |
 | DeepSeek / Mistral | ✅ | ❌ | none |
-| OpenAI (GPT-5.x) | ✅ | ✅ | `openai-reasoning` (`additionalModelRequestFields.reasoning_effort`) |
+| OpenAI (GPT-5.x) | ✅ | ✅ | `openai-reasoning` (`additionalModelRequestFields.reasoning.effort`) |
 | OpenAI (gpt-oss) | ✅ | ❌ | `openai-reasoning` (`additionalModelRequestFields.reasoning_effort`) |
 | Grok (4.x) | ✅ | ✅ | `grok-reasoning` (`additionalModelRequestFields.reasoning_effort`) |
 | Titan | ❌ | ❌ | none |
@@ -60,7 +60,7 @@ It implements the three roles of the dsh LLM seam:
 reasoning effort (`off`/`low`/`high`/`max`) turns on the model's reasoning channel; the mapping dispatches on the model's reasoning channel (`ModelCapabilities.reasoning`) in `resolveThinking` (`serialize.ts`):
 
 - **Claude** (`claude-thinking`): maps to a per-tier `additionalModelRequestFields.thinking.budget_tokens` — `low`/`high`/`max` each pick their own budget (built-in defaults 1024 / 4096 / 16384, override per tier via `thinkingBudgetByEffort`), `medium` is treated as `high`, any tier without a per-effort value falls back to `thinkingBudgetTokens`.
-- **OpenAI** (`openai-reasoning`, gpt-oss + GPT-5.x) and **Grok** (`grok-reasoning`, 4.x): map to an `additionalModelRequestFields.reasoning_effort` string (`low` / `medium` / `high`); `max` folds into `high`.
+- **OpenAI** (`openai-reasoning`, gpt-oss + GPT-5.x) and **Grok** (`grok-reasoning`, 4.x): map to an `effort` string (`low` / `medium` / `high`, `max` folds into `high`). The wire shape differs within the OpenAI family — gpt-oss takes a flat `additionalModelRequestFields.reasoning_effort`, while the GPT-5.x line takes a nested `additionalModelRequestFields.reasoning.effort` (a flat `reasoning_effort` is rejected by GPT-5.x). Grok takes the flat `reasoning_effort` and must be invoked via a cross-region inference profile id (`us.xai.grok-4.6`), not the bare `xai.grok-4.6` (no on-demand throughput).
 - `off` / absent disables reasoning entirely, and the internal `session-title` purpose never requests it.
 
 Because the mapping is keyed on `ModelCapabilities.reasoning`, Claude's `thinking` field is never sent to an OpenAI/Grok model and their `reasoning_effort` is never sent to Claude; families without a reasoning channel send no reasoning fields at all.

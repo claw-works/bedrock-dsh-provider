@@ -73,7 +73,10 @@ const DEFAULT_MODELS: BedrockCatalogModel[] = [
     contextWindow: DEFAULT_CONTEXT_WINDOW,
   },
   {
-    id: 'xai.grok-4.6',
+    // Grok has no on-demand throughput on Bedrock; it must be invoked through a
+    // cross-region inference profile id, so the default catalog entry carries
+    // the `us.` profile id rather than the bare `xai.grok-4.6` model id.
+    id: 'us.xai.grok-4.6',
     name: 'xAI Grok 4.6',
     contextWindow: DEFAULT_CONTEXT_WINDOW,
   },

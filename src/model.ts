@@ -62,9 +62,11 @@ export function modelFamily(modelId: string): ModelFamily {
   // xAI Grok: `xai.grok-*` (plus `us.`/`eu.`/`apac.` cross-region prefixes).
   if (id.includes('grok') || id.includes('xai.')) return 'grok'
   // OpenAI on Bedrock: gpt-oss (`openai.gpt-oss-*`) and the GPT-5.x line
-  // (`openai.gpt-5.6-*`). Match the provider token and the `gpt` model token so
-  // both bare ids and cross-region inference profiles classify the same.
-  if (id.includes('openai') || id.includes('gpt-oss') || id.includes('gpt')) return 'openai'
+  // (`openai.gpt-5.6-*`). Both carry the `openai` provider token, so match that
+  // (plus the `gpt-oss` model token for safety). Deliberately NOT a bare `gpt`
+  // substring — that would misclassify unrelated ids like `custom.my-gpt-proxy`
+  // as OpenAI and rob them of the unknown-family safe floor.
+  if (id.includes('openai') || id.includes('gpt-oss')) return 'openai'
   return 'unknown'
 }
 
@@ -83,12 +85,14 @@ function claudeReasons(id: string): boolean {
 
 /**
  * Whether an OpenAI-family id names a gpt-oss model rather than a hosted
- * GPT-5.x model. The two split on image input: gpt-oss (`gpt-oss-20b/120b`,
- * `gpt-oss-safeguard-*`) is text-only on Bedrock, while the GPT-5.x line accepts
- * image content. Both expose an OpenAI reasoning channel, so this only gates
- * the `images` capability — a family-level branch, not a per-model allowlist.
+ * GPT-5.x model. The two split on two things: image input (gpt-oss is text-only
+ * on Bedrock, the GPT-5.x line accepts images) and the reasoning wire shape
+ * (gpt-oss takes a flat `reasoning_effort`, GPT-5.x takes a nested
+ * `reasoning.effort` — see {@link module:dsh-llm-bedrock/serialize}). Exported so
+ * the request serializer can pick the right reasoning field within the one
+ * OpenAI family, a family-level branch rather than a per-model allowlist.
  */
-function openaiIsGptOss(id: string): boolean {
+export function openaiIsGptOss(id: string): boolean {
   return id.toLowerCase().includes('gpt-oss')
 }
 
