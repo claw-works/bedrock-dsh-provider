@@ -27,13 +27,14 @@ import type {
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
+  ModelModality,
   ResolvedRetryPolicy,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { modelCapabilities } from './model.js'
 import { serializeRequest } from './serialize.js'
-import type { RequestDefaults } from './serialize.js'
+import type { ImageReader, RequestDefaults } from './serialize.js'
 import { translate } from './translate.js'
 import type { ConverseStreamOutput } from './types.js'
 
@@ -77,6 +78,13 @@ export interface BedrockConnectionOptions {
 export interface BedrockAdapterOptions {
   /** Current validated connection facts; called once per operation. */
   options: () => BedrockConnectionOptions
+  /**
+   * Resolve the attachment-seam image byte reader for one request. The plugin
+   * reads `ctx.attachments` lazily so a deployment without the attachment
+   * service still loads; a request that actually carries an image and finds no
+   * store fails with a clear error rather than at plugin load.
+   */
+  readImage: ImageReader
 }
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
@@ -101,12 +109,15 @@ const REASONING_EFFORTS = [
 ] as const
 
 function modelInfo(provider: string, model: BedrockCatalogModel): LlmModelInfo {
+  const inputModalities: ModelModality[] = modelCapabilities(model.id).images
+    ? ['text', 'image']
+    : ['text']
   return {
     provider,
     id: model.id,
     name: model.name ?? model.id,
     ...model.description === undefined ? {} : { description: model.description },
-    inputModalities: ['text'],
+    inputModalities,
   }
 }
 
@@ -204,7 +215,12 @@ export class BedrockAdapter extends LlmAdapter {
     const contextWindow = configured?.contextWindow ?? connection.defaultContextWindow
     return Promise.resolve({
       ...configured === undefined
-        ? { provider, id: model, name: model, inputModalities: ['text' as const] }
+        ? {
+          provider,
+          id: model,
+          name: model,
+          inputModalities: (capabilities.images ? ['text', 'image'] : ['text']) as ModelModality[],
+        }
         : modelInfo(provider, configured),
       context: { contextWindow },
       defaultMaxTokens: configured?.maxTokens ?? connection.maxTokens,
@@ -304,8 +320,9 @@ export class BedrockAdapter extends LlmAdapter {
   ): AsyncIterable<StreamChunk> {
     const capabilities = modelCapabilities(options.model)
     // Serialization runs before the send so a mapping failure surfaces as its
-    // own error rather than being labelled a transport failure.
-    const input = serializeRequest(options, capabilities, connection.defaults)
+    // own error rather than being labelled a transport failure. Image blocks
+    // are read from the attachment seam here, so serialization is async.
+    const input = await serializeRequest(options, capabilities, connection.defaults, this.config.readImage)
     const command = new ConverseStreamCommand(input)
 
     let response

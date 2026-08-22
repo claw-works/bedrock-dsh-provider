@@ -17,8 +17,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
+import { LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { launchEnvironmentOf, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -208,7 +209,23 @@ export function apply(ctx: Context, config: Config): void {
   }
   options()
 
-  const adapter = new BedrockAdapter({ options })
+  // Read image bytes through the attachment seam on demand. `ctx.get` avoids a
+  // hard inject so a deployment without the attachment service still loads;
+  // only a request that actually carries an image needs the store, and it gets
+  // a clear error when one is absent.
+  const readImage = async (ref: ImageAttachmentRef): Promise<Uint8Array> => {
+    const attachments = ctx.get('attachments')
+    if (attachments === undefined) {
+      throw new LlmError(
+        'llm-bedrock: image content requires the attachment service, which is not available',
+        'UNSUPPORTED_CONTENT',
+      )
+    }
+    const stored = await attachments.readImage(ref)
+    return stored.data
+  }
+
+  const adapter = new BedrockAdapter({ options, readImage })
   ctx.llm.registerConfigurableProviders([
     { provider: PROVIDER, displayName: 'Amazon Bedrock', settingsNs: NS, settingsPath: [] },
   ])

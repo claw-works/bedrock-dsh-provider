@@ -20,7 +20,7 @@
 |---|---|
 | `src/index.ts` | 插件入口、`Config` schema、注册、per-request 配置解析（region/profile/endpoint/catalog） |
 | `src/adapter.ts` | `BedrockAdapter`：`ConverseStreamCommand`、SDK 客户端复用、idle watchdog、AWS 错误 → `LlmError` code 映射 |
-| `src/serialize.ts` | harness `Message[]` → Converse 入参（`messages` / `system` / `toolConfig` / thinking fields），合并连续同 role turn，tool-result 归入 user 的 `toolResult` block |
+| `src/serialize.ts` | harness `Message[]` → Converse 入参（`messages` / `system` / `toolConfig` / thinking fields），合并连续同 role turn，tool-result 归入 user 的 `toolResult` block，image block 经 attachment seam 映射为 Converse `image` block |
 | `src/translate.ts` | Converse 流事件 → harness `StreamChunk`（block-start/delta/end、usage、finish、stopReason 映射） |
 | `src/model.ts` | 按 model id 判断能力（tools / images / reasoning），Claude 优先 |
 | `src/replay.ts` | Claude extended-thinking 的 `signature` 通过 `ReplayEnvelope` 携带回放 |
@@ -52,7 +52,7 @@
 | Titan | ❌ | ❌ | 无 |
 | unknown | ✅ | ❌ | 无（安全下限） |
 
-> 注：image 输入本包第一版尚未实现序列化（`serialize.ts` 对 image content 直接抛 `UNSUPPORTED_CONTENT`）。上表的 images 列表示模型本身是否支持，留待后续实现 image 序列化时打开。
+> 注：image 输入已实现序列化为 Converse `image` content block，按上表 images 列放行。图片字节从 dsh attachment seam（`ctx.attachments.readImage`）读取，harness 媒体类型（`image/png` · `image/jpeg` · `image/gif` · `image/webp`）与 Converse `format` 1:1 映射。若某家族 images 为 ❌ 却携带图片，请求以 `UNSUPPORTED_CONTENT` 拒绝，错误信息含 model id 与家族。
 
 reasoning effort（`off`/`low`/`high`/`max`）目前统一映射为"是否开启 thinking"+固定 `thinkingBudgetTokens`；如需按 effort 分档预算，改 `serialize.ts` 的 `resolveThinking`。
 

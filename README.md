@@ -20,7 +20,7 @@ It implements the three roles of the dsh LLM seam:
 |---|---|
 | `src/index.ts` | Plugin entry, `Config` schema, registration, per-request config resolution (region/profile/endpoint/catalog) |
 | `src/adapter.ts` | `BedrockAdapter`: `ConverseStreamCommand`, SDK client reuse, idle watchdog, AWS error → `LlmError` code mapping |
-| `src/serialize.ts` | harness `Message[]` → Converse inputs (`messages` / `system` / `toolConfig` / thinking fields), merges consecutive same-role turns, folds tool results into the user's `toolResult` block |
+| `src/serialize.ts` | harness `Message[]` → Converse inputs (`messages` / `system` / `toolConfig` / thinking fields), merges consecutive same-role turns, folds tool results into the user's `toolResult` block, maps image blocks to Converse `image` blocks via the attachment seam |
 | `src/translate.ts` | Converse stream events → harness `StreamChunk` (block-start/delta/end, usage, finish, stopReason mapping) |
 | `src/model.ts` | Per-model capability judgement by model id (tools / images / reasoning), Claude first |
 | `src/replay.ts` | Carries Claude extended-thinking `signature` back through a `ReplayEnvelope` for replay |
@@ -52,7 +52,7 @@ It implements the three roles of the dsh LLM seam:
 | Titan | ❌ | ❌ | none |
 | unknown | ✅ | ❌ | none (safe floor) |
 
-> Note: image input serialization is not yet implemented in this first version (`serialize.ts` throws `UNSUPPORTED_CONTENT` on image content). The `images` column above indicates whether the model itself supports images, reserved for when image serialization is added.
+> Note: image input is serialized to Converse `image` content blocks, gated on the `images` column above. Image bytes are read from the dsh attachment seam (`ctx.attachments.readImage`) and the harness media type (`image/png` · `image/jpeg` · `image/gif` · `image/webp`) maps 1:1 to the Converse `format`. A request carrying an image for a family whose `images` is ❌ is rejected with `UNSUPPORTED_CONTENT`, and the error names the model id and family.
 
 reasoning effort (`off`/`low`/`high`/`max`) currently maps uniformly to "whether to enable thinking" plus a fixed `thinkingBudgetTokens`. To budget per effort tier, edit `resolveThinking` in `serialize.ts`.
 
